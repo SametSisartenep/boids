@@ -68,13 +68,13 @@ newflock(int nbirds, Rectangle jail)
 		f->birds = realloc(f->birds, ++f->nbirds*sizeof(Bird));
 		if(f->birds == nil)
 			sysfatal("realloc: %r");
-		setrealloctag(f->birds, getcallerpc(&nbirds));
 		b = &f->birds[f->nbirds-1];
 		b->p = Pt2(frand()*Dx(jail),frand()*Dy(jail),1);
 		b->v = Vec2(cos(frand()*2*PI),sin(frand()*2*PI));
 		b->v = mulpt2(b->v, TERMINALV);
 		b->color = pal[Cfg];
 	}
+	setrealloctag(f->birds, getcallerpc(&nbirds));
 
 	return f;
 }
