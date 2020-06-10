@@ -7,7 +7,8 @@
 #include <geometry.h>
 
 enum {
-	TERMINALV = 20
+	TERMINALV = 40,
+	BORDER = 100
 };
 
 enum {
@@ -22,6 +23,7 @@ typedef struct Flock Flock;
 struct Bird
 {
 	Point2 p, v;
+	double sight;
 	Image *color;
 };
 
@@ -40,6 +42,7 @@ struct Flock
 RFrame worldrf;
 Image *pal[NCOLOR];
 Flock *flock;
+int nbirds;
 
 void flockseparate(Flock*);
 void flockalign(Flock*);
@@ -57,71 +60,127 @@ newflock(int nbirds, Rectangle jail)
 		sysfatal("malloc: %r");
 	setmalloctag(f, getcallerpc(&nbirds));
 	f->birds = nil;
-	f->nbirds = 0;
+	f->nbirds = nbirds;
 	f->jail = jail;
 	f->separate = flockseparate;
 	f->align = flockalign;
 	f->cohesion = flockcohesion;
 	f->step = flockstep;
 
-	while(nbirds--){
-		f->birds = realloc(f->birds, ++f->nbirds*sizeof(Bird));
-		if(f->birds == nil)
-			sysfatal("realloc: %r");
-		b = &f->birds[f->nbirds-1];
-		b->p = Pt2(frand()*Dx(jail),frand()*Dy(jail),1);
+	f->birds = malloc(nbirds*sizeof(Bird));
+	if(f->birds == nil)
+		sysfatal("malloc: %r");
+	setmalloctag(f->birds, getcallerpc(&nbirds));
+	for(b = f->birds; b < f->birds + f->nbirds; b++){
+		b->p = Pt2(frand()*jail.max.x + jail.min.x,frand()*jail.max.y + jail.min.y,1);
 		b->v = Vec2(cos(frand()*2*PI),sin(frand()*2*PI));
 		b->v = mulpt2(b->v, TERMINALV);
+		b->sight = 75;
 		b->color = pal[Cfg];
 	}
-	setrealloctag(f->birds, getcallerpc(&nbirds));
 
 	return f;
 }
 
 void
-flockseparate(Flock *)
+flockseparate(Flock *f)
 {
+	static double comfortdist = 8;
+	static double repel = 0.05;
+	Point2 repelling, Δp;
+	Bird *b0, *b1;
+
+	for(b0 = f->birds; b0 < f->birds + f->nbirds; b0++){
+		repelling = Vec2(0,0);
+
+		for(b1 = f->birds; b1 < f->birds + f->nbirds; b1++)
+			if(b0 != b1){
+				Δp = subpt2(b0->p, b1->p);
+				if(vec2len(Δp) < comfortdist)
+					repelling = addpt2(repelling, Δp);
+			}
+
+		b0->v = addpt2(b0->v, mulpt2(repelling, repel));
+	}
 }
 
 void
-flockalign(Flock *)
+flockalign(Flock *f)
 {
+	static double attract = 0.05;
+	int neighbors;
+	Point2 attracting;
+	Bird *b0, *b1;
+
+	for(b0 = f->birds; b0 < f->birds + f->nbirds; b0++){
+		neighbors = 0;
+		attracting = Vec2(0,0);
+
+		for(b1 = f->birds; b1 < f->birds + f->nbirds; b1++)
+			if(vec2len(subpt2(b0->p, b1->p)) < b0->sight){
+				attracting = addpt2(attracting, b1->v);
+				neighbors++;
+			}
+
+		if(neighbors > 0){
+			attracting = divpt2(attracting, neighbors);
+			b0->v = addpt2(b0->v, mulpt2(subpt2(attracting, b0->v), attract));
+		}
+	}
 }
 
 void
-flockcohesion(Flock *)
+flockcohesion(Flock *f)
 {
+	static double center = 0.005;
+	int neighbors;
+	Point2 centering;
+	Bird *b0, *b1;
+
+	for(b0 = f->birds; b0 < f->birds + f->nbirds; b0++){
+		neighbors = 0;
+		centering = Vec2(0,0);
+
+		for(b1 = f->birds; b1 < f->birds + f->nbirds; b1++)
+			if(vec2len(subpt2(b0->p, b1->p)) < b0->sight){
+				centering = addpt2(centering, b1->p);
+				neighbors++;
+			}
+
+		if(neighbors > 0){
+			centering = divpt2(centering, neighbors);
+			b0->v = addpt2(b0->v, mulpt2(subpt2(centering, b0->p), center));
+		}
+	}
 }
 
 void
 flockstep(Flock *f)
 {
 	static double Δt = 1;
+	static Point2 a = {2,2}; /* deceleration */
 	Bird *b;
 
-	//f->separate(f);
-	//f->align(f);
-	//f->cohesion(f);
+	f->separate(f);
+	f->align(f);
+	f->cohesion(f);
 	for(b = f->birds; b < f->birds + f->nbirds; b++){
 		b->p = addpt2(b->p, mulpt2(b->v, Δt));
-		if(b->p.x < 0){
-			b->p.x = 0;
-			b->v.x = -b->v.x;
-		}
-		if(b->p.y < 0){
-			b->p.y = 0;
-			b->v.y = -b->v.y;
-		}
-		if(b->p.x > Dx(f->jail)){
-			b->p.x = Dx(f->jail);
-			b->v.x = -b->v.x;
-		}
-		if(b->p.y > Dy(f->jail)){
-			b->p.y = Dy(f->jail);
-			b->v.y = -b->v.y;
-		}
+		if(b->p.x < f->jail.min.x)
+			b->v.x += a.x;
+		if(b->p.y < f->jail.min.y)
+			b->v.y += a.y;
+		if(b->p.x > f->jail.max.x)
+			b->v.x -= a.x;
+		if(b->p.y > f->jail.max.y)
+			b->v.y -= a.y;
 	}
+}
+
+void
+resetflock(void)
+{
+	flock = newflock(nbirds, Rect(BORDER,BORDER,Dx(screen->r)-BORDER,Dy(screen->r)-BORDER));
 }
 
 Point
@@ -151,9 +210,8 @@ redraw(void)
 
 	lockdisplay(display);
 	draw(screen, screen->r, pal[Cbg], nil, ZP);
-	for(b = flock->birds; b < flock->birds + flock->nbirds; b++){
+	for(b = flock->birds; b < flock->birds + flock->nbirds; b++)
 		ellipse(screen, toscreen(b->p), 2, 2, 0, b->color, ZP);
-	}
 	flushimage(display, 1);
 	unlockdisplay(display);
 }
@@ -166,13 +224,42 @@ resized(void)
 		sysfatal("resize failed");
 	unlockdisplay(display);
 	worldrf.p = Pt2(screen->r.min.x,screen->r.max.y,1);
-	flock->jail = Rect(0,0,Dx(screen->r),Dy(screen->r));
+	flock->jail = Rect(BORDER,BORDER,Dx(screen->r)-BORDER,Dy(screen->r)-BORDER);
 	redraw();
 }
 
 void
-mouse(Mouse)
+rmb(Mousectl *mc, Keyboardctl *kc)
 {
+	enum {
+		RESET,
+		NBIRDS
+	};
+	static char *items[] = {
+	 [RESET]	"reset",
+	 [NBIRDS]	"set bird number",
+		nil
+	};
+	static Menu menu = { .item = items };
+	char buf[128];
+
+	switch(menuhit(3, mc, &menu, nil)){
+	case NBIRDS:
+		snprint(buf, sizeof buf, "%d", nbirds);
+		enter("nbirds", buf, sizeof buf, mc, kc, nil);
+		nbirds = strtol(buf, nil, 10);
+	case RESET:
+		srand(time(nil));
+		resetflock();
+		break;
+	}
+}
+
+void
+mouse(Mousectl *mc, Keyboardctl *kc)
+{
+	if((mc->buttons&4) != 0)
+		rmb(mc, kc);
 }
 
 void
@@ -202,9 +289,8 @@ threadmain(int argc, char *argv[])
 	Keyboardctl *kc;
 	Rune r;
 	char *s;
-	int nbirds;
 
-	nbirds = 10;
+	nbirds = 100;
 	ARGBEGIN{
 	case 'n':
 		nbirds = strtol(EARGF(usage()), &s, 10);
@@ -226,8 +312,7 @@ threadmain(int argc, char *argv[])
 	worldrf.p = Pt2(screen->r.min.x,screen->r.max.y,1);
 	worldrf.bx = Vec2(1, 0);
 	worldrf.by = Vec2(0,-1);
-
-	flock = newflock(nbirds, Rect(0,0,Dx(screen->r),Dy(screen->r)));
+	resetflock();
 
 	display->locking = 1;
 	unlockdisplay(display);
@@ -244,7 +329,7 @@ threadmain(int argc, char *argv[])
 
 		switch(alt(a)){
 		case MOUSE:
-			mouse(mc->Mouse);
+			mouse(mc, kc);
 			break;
 		case RESIZE:
 			resized();
