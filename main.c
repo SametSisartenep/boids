@@ -166,13 +166,13 @@ flockstep(Flock *f)
 	f->cohesion(f);
 	for(b = f->birds; b < f->birds + f->nbirds; b++){
 		b->p = addpt2(b->p, mulpt2(b->v, Δt));
-		if(b->p.x < f->jail.min.x)
+		if(b->p.x < f->jail.min.x+BORDER)
 			b->v.x += a.x;
-		if(b->p.y < f->jail.min.y)
+		if(b->p.y < f->jail.min.y+BORDER)
 			b->v.y += a.y;
-		if(b->p.x > f->jail.max.x)
+		if(b->p.x > f->jail.max.x-BORDER)
 			b->v.x -= a.x;
-		if(b->p.y > f->jail.max.y)
+		if(b->p.y > f->jail.max.y-BORDER)
 			b->v.y -= a.y;
 	}
 }
@@ -180,7 +180,7 @@ flockstep(Flock *f)
 void
 resetflock(void)
 {
-	flock = newflock(nbirds, Rect(BORDER,BORDER,Dx(screen->r)-BORDER,Dy(screen->r)-BORDER));
+	flock = newflock(nbirds, Rect(0,0,Dx(screen->r),Dy(screen->r)));
 }
 
 Point
@@ -224,7 +224,7 @@ resized(void)
 		sysfatal("resize failed");
 	unlockdisplay(display);
 	worldrf.p = Pt2(screen->r.min.x,screen->r.max.y,1);
-	flock->jail = Rect(BORDER,BORDER,Dx(screen->r)-BORDER,Dy(screen->r)-BORDER);
+	flock->jail = Rect(0,0,Dx(screen->r),Dy(screen->r));
 	redraw();
 }
 
