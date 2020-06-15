@@ -58,8 +58,9 @@ newflock(int nbirds, Rectangle jail)
 	f = malloc(sizeof(Flock));
 	if(f == nil)
 		sysfatal("malloc: %r");
-	setmalloctag(f, getcallerpc(&nbirds));
-	f->birds = nil;
+	f->birds = malloc(nbirds*sizeof(Bird));
+	if(f->birds == nil)
+		sysfatal("malloc: %r");
 	f->nbirds = nbirds;
 	f->jail = jail;
 	f->separate = flockseparate;
@@ -67,10 +68,6 @@ newflock(int nbirds, Rectangle jail)
 	f->cohesion = flockcohesion;
 	f->step = flockstep;
 
-	f->birds = malloc(nbirds*sizeof(Bird));
-	if(f->birds == nil)
-		sysfatal("malloc: %r");
-	setmalloctag(f->birds, getcallerpc(&nbirds));
 	for(b = f->birds; b < f->birds + f->nbirds; b++){
 		b->p = Pt2(frand()*jail.max.x + jail.min.x,frand()*jail.max.y + jail.min.y,1);
 		b->v = Vec2(cos(frand()*2*PI),sin(frand()*2*PI));
@@ -158,7 +155,7 @@ void
 flockstep(Flock *f)
 {
 	static double Δt = 1;
-	static Point2 a = {2,2}; /* deceleration */
+	static Point2 a = {1,1}; /* deceleration */
 	Bird *b;
 
 	f->separate(f);
