@@ -6,6 +6,8 @@
 #include <keyboard.h>
 #include <geometry.h>
 
+#define HZ2MS(hz)	(1000/(hz))
+
 enum {
 	TERMINALV = 40,
 	BORDER = 100
@@ -43,6 +45,8 @@ RFrame worldrf;
 Image *pal[NCOLOR];
 Flock *flock;
 int nbirds;
+int paused;
+QLock pauselk;
 
 void flockseparate(Flock*);
 void flockalign(Flock*);
@@ -240,10 +244,10 @@ rmb(Mousectl *mc, Keyboardctl *kc)
 	static Menu menu = { .item = items };
 	char buf[128];
 
-	switch(menuhit(3, mc, &menu, nil)){
+	switch(menuhit(3, mc, &menu, _screen)){
 	case NBIRDS:
 		snprint(buf, sizeof buf, "%d", nbirds);
-		enter("nbirds", buf, sizeof buf, mc, kc, nil);
+		enter("nbirds", buf, sizeof buf, mc, kc, _screen);
 		nbirds = strtol(buf, nil, 10);
 	case RESET:
 		srand(time(nil));
@@ -267,8 +271,28 @@ key(Rune r)
 	case 'q':
 		threadexitsall(nil);
 	case ' ':
-		flock->step(flock);
+		if(paused)
+			qunlock(&pauselk);
+		else
+			qlock(&pauselk);
+		paused = !paused;
 		break;
+	}
+}
+
+void
+runsim(void *)
+{
+	Ioproc *io;
+
+	io = ioproc();
+
+	for(;;){
+		qlock(&pauselk);
+		flock->step(flock);
+		qunlock(&pauselk);
+		redraw();
+		iosleep(io, HZ2MS(24));
 	}
 }
 
@@ -313,6 +337,7 @@ threadmain(int argc, char *argv[])
 
 	display->locking = 1;
 	unlockdisplay(display);
+	threadcreate(runsim, nil, mainstacksize);
 	redraw();
 
 	for(;;){
